@@ -37,6 +37,11 @@
               <body name="link5" pos="0 0 0.3">
                 <joint name="joint5" pos="0 0 -0.15" axis="1 0 0" range="-3.14 3.14"/>
                 <geom type="cylinder" size="0.05 0.15" rgba="0 1 0 1"/>
+                <!-- gripper_base_link -->
+                <body name="gripper_base_link" pos="0 0 0.175">
+                  <joint name="gripper_base_joint" pos="0 0 0" axis="0 0 1" range="-3.14 3.14"/>
+                  <geom type="box" size="0.05 0.1 0.025" rgba="0 0 1 1"/>
+                </body>
               </body>
             </body>
           </body>

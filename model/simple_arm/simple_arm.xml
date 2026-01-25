@@ -41,6 +41,16 @@
                 <body name="gripper_base_link" pos="0 0 0.175">
                   <joint name="gripper_base_joint" pos="0 0 0" axis="0 0 1" range="-3.14 3.14"/>
                   <geom type="box" size="0.05 0.1 0.025" rgba="0 0 1 1"/>
+                  <!-- hand_right_link -->
+                  <body name="hand_right_link" pos="0 -0.075 0.075">
+                    <joint name="hand_right_joint" type="slide" pos="0 0 0" axis="0 1 0" range="0 0.05"/>
+                    <geom type="box" size="0.05 0.025 0.05" rgba="1 0 0 1"/>
+                  </body>
+                  <!-- hand_left_link -->
+                  <body name="hand_left_link" pos="0 0.075 0.075">
+                    <joint name="hand_left_joint" type="slide" pos="0 0 0" axis="0 -1 0" range="0 0.05"/>
+                    <geom type="box" size="0.05 0.025 0.05" rgba="1 0 0 1"/>
+                  </body>
                 </body>
               </body>
             </body>

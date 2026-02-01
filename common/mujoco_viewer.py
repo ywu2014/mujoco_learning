@@ -115,6 +115,8 @@ class CameraViewer(BaseViewer):
     def get_camera_type(self, mode:int):
         if mode == 0:
             return mujoco.mjtCamera.mjCAMERA_FIXED
+        elif mode == 3:
+            return mujoco.mjtCamera.mjCAMERA_TRACKING
         
         raise Exception(f'invalid mode value {mode}')
     
@@ -140,6 +142,9 @@ class CameraViewer(BaseViewer):
 
         camera.fixedcamid = cam_id
         camera.type = cam_type
+        if cam_type == mujoco.mjtCamera.mjCAMERA_TRACKING:
+            track_body_id = self.model.cam_targetbodyid[cam_id]
+            camera.trackbodyid = track_body_id
 
         # 初始化 GLFW
         if not glfw.init():

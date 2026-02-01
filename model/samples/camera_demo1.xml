@@ -1,0 +1,31 @@
+<mujoco model="simple_robot">
+  <!-- 设置角度单位为弧度 -->
+  <compiler angle="radian"/>
+  <asset>
+    <!-- 天空纹理 -->
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <!-- 地面纹理及材质 -->
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+  <worldbody>
+    <!-- 灯光 -->
+    <light pos="0 0 1.5" dir="0 0 -1" type="directional"/>
+    <!-- 地面 -->
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <!-- 被观察物体 -->
+    <body name="box" pos="0 0 0.05">
+      <freejoint/>
+      <geom type="box" size="0.15 0.15 0.05" rgba="0 0.5 0.5 1"/>
+    </body>
+
+    <!-- <camera name="test_camera" mode="fixed" pos="0 -1 1.5" euler="0.7 0 0" fovy="51" resolution="1920 1080"/> -->
+
+    <body name="camera_bracket" pos="0 -1 0.1">
+      <freejoint/>
+      <geom type="box" size="0.15 0.15 0.1" rgba="1 1 0 1"/>
+      <camera name="test_camera" mode="fixed" pos="0 0 0.7" euler="0.7 0 0" fovy="51" resolution="1920 1080"/>
+    </body>
+  </worldbody>
+</mujoco>

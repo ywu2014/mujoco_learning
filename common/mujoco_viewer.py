@@ -1,6 +1,9 @@
 import time
 import mujoco
 import mujoco.viewer
+import glfw
+import cv2
+import numpy as np
 
 class BaseViewer:
     def __init__(self, model_path, sleep_time:float=None):
@@ -32,6 +35,23 @@ class BaseViewer:
         将物理引擎（data）中计算出的最新状态，同步并渲染到图形窗口中
         """
         self.handle.sync()
+
+    def _get_obj_id(self, obj_type, obj_name:str):
+        """
+        获取物体(body、camera等)的运行时id
+        
+        :param obj_type: 物体类型, mujoco.mjtObj.mjOBJ_xxx
+        :param obj_name: 物体名称, MJCF中物体的name属性
+        """
+        return mujoco.mj_name2id(self.model, obj_type, obj_name)
+    
+    def get_body_id(self, name:str):
+        """
+        获取body物体的运行时id
+        
+        :param name: body 名称
+        """
+        return self._get_obj_id(mujoco.mjtObj.mjOBJ_BODY, name)
 
     def start(self):
         """
@@ -68,3 +88,101 @@ class BaseViewer:
         每个时间步处理回调
         """
         pass
+
+class CameraViewer(BaseViewer):
+    def __init__(self, model_path, sleep_time = None):
+        super().__init__(model_path, sleep_time)
+
+    def get_camera_id(self, name:str):
+        """
+        获取body物体的运行时id
+        
+        :param name: camera 名称
+        """
+        camera_id = self._get_obj_id(mujoco.mjtObj.mjOBJ_CAMERA, name)
+        if camera_id == -1:
+            raise ValueError(f"Camera '{name}' not found")
+        return camera_id
+    
+    def pre_process(self):
+        super().pre_process()
+        return 
+    
+    def init_camera(self, name:str):
+        self.camera = mujoco.MjvCamera()
+        cam_id = self.get_camera_id(name)
+        self.camera.fixedcamid = cam_id
+        self.camera.type = mujoco.mjtCamera.mjCAMERA_FIXED
+        self.resolution = self.model.cam_resolution[cam_id]  # 分辨率
+        if self.resolution is None:
+            print("Camera resolution is not set. Using default resolution.")
+            self.resolution = np.array([640, 480])
+        print('初始化相机, 名称: {name}, 相机分辨率: {self.resolution}')
+
+        # 初始化 GLFW
+        if not glfw.init():
+            return False
+
+        self.window = glfw.create_window(self.resolution[0], self.resolution[1], 'Dobot Sim Environment', None, None)
+        if not self.window:
+            glfw.terminate()
+            return False
+        glfw.make_context_current(self.window)
+
+        self.pert = mujoco.MjvPerturb()
+        self.con = mujoco.MjrContext(self.model, mujoco.mjtFontScale.mjFONTSCALE_150)
+
+        self.scene = mujoco.MjvScene(self.model, maxgeom=10000)
+        return True
+    
+    def step_callback(self):
+        color_img, depth_img = self.get_image(1920, 1080)
+        self.image_callback(color_img)
+    
+    def get_image(self, w, h):
+        # 定义视口大小
+        viewport = mujoco.MjrRect(0, 0, w, h)
+        # 更新场景
+        mujoco.mjv_updateScene(
+            self.model, self.data, mujoco.MjvOption(), 
+            None, self.camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene
+        )
+        # 渲染到缓冲区
+        mujoco.mjr_render(viewport, self.scene, self.con)
+        # 读取 RGB 数据（格式为 HWC, uint8）
+        rgb = np.zeros((h, w, 3), dtype=np.uint8)
+        depth = np.zeros((h, w), dtype=np.float64)
+        mujoco.mjr_readPixels(rgb, depth, viewport, self.con)
+        cv_image = cv2.cvtColor(np.flipud(rgb), cv2.COLOR_RGB2BGR)
+
+        # 参数设置
+        min_depth_m = 0.0  # 最小深度（0米）
+        max_depth_m = 8.0  # 最大深度（8米）
+        near_clip = 0.1    # 近裁剪面（米）
+        far_clip = 50.0    # 远裁剪面（米）
+        # 将非线性深度缓冲区值转换为线性深度（米）
+        # 公式: linear_depth = far * near / (far - (far - near) * depth)
+        linear_depth_m = far_clip * near_clip / (far_clip - (far_clip - near_clip) * depth)
+        # 裁剪深度到0-8米范围
+        depth_clipped = np.clip(linear_depth_m, min_depth_m, max_depth_m)
+        # 映射0-8米到0-255像素值（距离越小越亮）
+        # 反转映射：距离越小值越大（越亮）
+        inverted_depth = max_depth_m - depth_clipped
+        # 计算缩放因子：255/(max_depth_m - min_depth_m)
+        scale = 255.0 / (max_depth_m - min_depth_m)
+        depth_visual = (inverted_depth * scale).astype(np.uint8)
+        # 翻转图像（MuJoCO坐标系到OpenCV坐标系）
+        depth_visual = np.flipud(depth_visual)
+        return cv_image, depth_visual
+    
+    def image_callback(self, color_img):
+        pass
+    
+    # def update_camera(self):
+    #     if not glfw.window_should_close(self.window):
+    #         img, depth_img = self.get_image(self.resolution[0], self.resolution[1])
+            
+
+    #         # 交换前后缓冲区
+    #         glfw.swap_buffers(self.window)
+    #         glfw.poll_events()

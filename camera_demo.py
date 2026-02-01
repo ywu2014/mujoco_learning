@@ -7,9 +7,14 @@ class CameraDemo(CameraViewer):
         model_path = "./model/samples/camera_demo1.xml"
         super().__init__(model_path)
 
-    def image_callback(self, color_img):
-        print(color_img.shape)
-        cv2.imshow('MuJoCo Camera Output', color_img)
+        self.camera_window_exist = False
+
+    def image_process_callback(self, name, color_img, depth_img):
+        # print(color_img.shape)
+        if not self.camera_window_exist:
+            cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(name, 1280, 720)
+        cv2.imshow(name, color_img)
         if cv2.waitKey(1) == 27:
             cv2.destroyAllWindows()
 

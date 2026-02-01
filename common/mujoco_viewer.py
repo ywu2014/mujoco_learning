@@ -93,9 +93,13 @@ class CameraViewer(BaseViewer):
     def __init__(self, model_path, sleep_time = None):
         super().__init__(model_path, sleep_time)
 
+        self.scene = mujoco.MjvScene(self.model, maxgeom=10000)
+
+        self.cameras = {}
+
     def get_camera_id(self, name:str):
         """
-        获取body物体的运行时id
+        获取camera物体的运行时id
         
         :param name: camera 名称
         """
@@ -108,51 +112,71 @@ class CameraViewer(BaseViewer):
         super().pre_process()
         return 
     
+    def get_camera_type(self, mode:int):
+        if mode == 0:
+            return mujoco.mjtCamera.mjCAMERA_FIXED
+        
+        raise Exception(f'invalid mode value {mode}')
+    
+    def add_camera(self, camera, name, cam_type, context, resolution):
+        self.cameras[name] = {
+            'name': name,
+            'camera': camera,
+            'type': cam_type,
+            'context': context,
+            'resolution': resolution
+        }
+
     def init_camera(self, name:str):
-        self.camera = mujoco.MjvCamera()
+        camera = mujoco.MjvCamera()
         cam_id = self.get_camera_id(name)
-        self.camera.fixedcamid = cam_id
-        self.camera.type = mujoco.mjtCamera.mjCAMERA_FIXED
-        self.resolution = self.model.cam_resolution[cam_id]  # 分辨率
-        if self.resolution is None:
+        cam_mode = self.model.cam_mode[cam_id]
+        cam_type = self.get_camera_type(cam_mode)
+        cam_resolution = self.model.cam_resolution[cam_id]  # 分辨率
+        if cam_resolution is None:
             print("Camera resolution is not set. Using default resolution.")
-            self.resolution = np.array([640, 480])
-        print('初始化相机, 名称: {name}, 相机分辨率: {self.resolution}')
+            cam_resolution = np.array([640, 480])
+        print(f'初始化相机, 名称: {name}, 类型: {cam_type}, 分辨率: {cam_resolution}')
+
+        camera.fixedcamid = cam_id
+        camera.type = cam_type
 
         # 初始化 GLFW
         if not glfw.init():
             return False
 
-        self.window = glfw.create_window(self.resolution[0], self.resolution[1], 'Dobot Sim Environment', None, None)
-        if not self.window:
+        window = glfw.create_window(cam_resolution[0], cam_resolution[1], 'Dobot Sim Environment', None, None)
+        if not window:
             glfw.terminate()
             return False
-        glfw.make_context_current(self.window)
+        glfw.make_context_current(window)
 
-        self.pert = mujoco.MjvPerturb()
-        self.con = mujoco.MjrContext(self.model, mujoco.mjtFontScale.mjFONTSCALE_150)
+        context = mujoco.MjrContext(self.model, mujoco.mjtFontScale.mjFONTSCALE_150)
 
-        self.scene = mujoco.MjvScene(self.model, maxgeom=10000)
-        return True
+        self.add_camera(camera, name, cam_type, context, cam_resolution)
     
     def step_callback(self):
-        color_img, depth_img = self.get_image(1920, 1080)
-        self.image_callback(color_img)
+        for name, cam in self.cameras.items():
+            camera = cam['camera']
+            context = cam['context']
+            resolution = cam['resolution']
+            color_img, depth_img = self.get_image(camera, context, resolution[0], resolution[1])
+            self.image_process_callback(name, color_img, depth_img)
     
-    def get_image(self, w, h):
+    def get_image(self, camera, context, w, h):
         # 定义视口大小
         viewport = mujoco.MjrRect(0, 0, w, h)
         # 更新场景
         mujoco.mjv_updateScene(
             self.model, self.data, mujoco.MjvOption(), 
-            None, self.camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene
+            None, camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene
         )
         # 渲染到缓冲区
-        mujoco.mjr_render(viewport, self.scene, self.con)
+        mujoco.mjr_render(viewport, self.scene, context)
         # 读取 RGB 数据（格式为 HWC, uint8）
         rgb = np.zeros((h, w, 3), dtype=np.uint8)
         depth = np.zeros((h, w), dtype=np.float64)
-        mujoco.mjr_readPixels(rgb, depth, viewport, self.con)
+        mujoco.mjr_readPixels(rgb, depth, viewport, context)
         cv_image = cv2.cvtColor(np.flipud(rgb), cv2.COLOR_RGB2BGR)
 
         # 参数设置
@@ -175,7 +199,14 @@ class CameraViewer(BaseViewer):
         depth_visual = np.flipud(depth_visual)
         return cv_image, depth_visual
     
-    def image_callback(self, color_img):
+    def image_process_callback(self, name, color_img, depth_img):
+        """
+        图象处理回调
+        
+        :param color_img: 相机名称
+        :param color_img: 彩色图象数据
+        :param depth_img: 深度图象数据
+        """
         pass
     
     # def update_camera(self):

@@ -90,11 +90,18 @@ class BaseViewer:
         pass
 
 class CameraViewer(BaseViewer):
-    def __init__(self, model_path, sleep_time = None):
+    def __init__(self, model_path, sleep_time = None, default_resolution=[640, 480]):
+        """
+        :param model_path: MJCF模型文件路径
+        :param sleep_time: 每个时间步执行等待时间
+        :param default_resolution: 图象默认分辨率
+        """
         super().__init__(model_path, sleep_time)
+        self.default_resolution = default_resolution
 
         self.scene = mujoco.MjvScene(self.model, maxgeom=10000)
 
+        # 保存创建好的相机模型及相机参数
         self.cameras = {}
 
     def get_camera_id(self, name:str):
@@ -108,11 +115,12 @@ class CameraViewer(BaseViewer):
             raise ValueError(f"Camera '{name}' not found")
         return camera_id
     
-    def pre_process(self):
-        super().pre_process()
-        return 
-    
     def get_camera_type(self, mode:int):
+        """
+        相机类型表示转换
+        
+        :param mode: 相机mode的运行时数值
+        """
         if mode == 0:
             return mujoco.mjtCamera.mjCAMERA_FIXED
         elif mode == 3:
@@ -120,61 +128,79 @@ class CameraViewer(BaseViewer):
         
         raise Exception(f'invalid mode value {mode}')
     
-    def add_camera(self, camera, name, cam_type, context, resolution):
+    def add_camera(self, camera, name, cam_type, context, resolution, window):
         self.cameras[name] = {
             'name': name,
             'camera': camera,
             'type': cam_type,
             'context': context,
-            'resolution': resolution
+            'resolution': resolution,
+            'window': window
         }
 
     def init_camera(self, name:str):
-        camera = mujoco.MjvCamera()
+        """
+        初始化相机
+        :param name: 相机名称, MJCF中定义的camera元素的name属性
+        """
+        # 获取相机配置参数
         cam_id = self.get_camera_id(name)
         cam_mode = self.model.cam_mode[cam_id]
         cam_type = self.get_camera_type(cam_mode)
-        cam_resolution = self.model.cam_resolution[cam_id]  # 分辨率
-        if cam_resolution is None:
-            print("Camera resolution is not set. Using default resolution.")
-            cam_resolution = np.array([640, 480])
-        print(f'初始化相机, 名称: {name}, 类型: {cam_type}, 分辨率: {cam_resolution}')
+        cam_resolution = self.model.cam_resolution[cam_id]  # 分辨率, MJCF中默认值为(1, 1, 3)
+        if cam_resolution is None or cam_resolution[0] == 1:
+            print(f"camera {name} resolution is not set. Using default resolution.")
+            cam_resolution = np.array(self.default_resolution)
+        print(f'init camera, name: {name}, type: {cam_type}, resolution: {cam_resolution}')
 
+        # 创建相机对象
+        camera = mujoco.MjvCamera()
         camera.fixedcamid = cam_id
         camera.type = cam_type
         if cam_type == mujoco.mjtCamera.mjCAMERA_TRACKING:
             track_body_id = self.model.cam_targetbodyid[cam_id]
             camera.trackbodyid = track_body_id
 
-        # 初始化 GLFW
+        # 创建OpenGL上下文
         if not glfw.init():
             return False
-
-        window = glfw.create_window(cam_resolution[0], cam_resolution[1], 'Dobot Sim Environment', None, None)
+        window = glfw.create_window(cam_resolution[0], cam_resolution[1], name, None, None)
         if not window:
             glfw.terminate()
             return False
         glfw.make_context_current(window)
-
         context = mujoco.MjrContext(self.model, mujoco.mjtFontScale.mjFONTSCALE_150)
 
-        self.add_camera(camera, name, cam_type, context, cam_resolution)
+        self.add_camera(camera, name, cam_type, context, cam_resolution, window)
     
     def step_callback(self):
         for name, cam in self.cameras.items():
             camera = cam['camera']
             context = cam['context']
             resolution = cam['resolution']
-            color_img, depth_img = self.get_image(camera, context, resolution[0], resolution[1])
-            self.image_process_callback(name, color_img, depth_img)
+            window = cam['window']
+
+            # 将 window 指定的窗口的 OpenGL 上下文设置为当前线程的当前上下文
+            glfw.make_context_current(window)
+
+            color_img = self.get_image(camera, context, resolution[0], resolution[1])
+            self.image_process_callback(name, color_img)
     
     def get_image(self, camera, context, w, h):
+        """
+        从相机模型获取图象
+        
+        :param camera: 相机模型
+        :param context: 上下文
+        :param w: 图象宽度
+        :param h: 图象高度
+        """
         # 定义视口大小
         viewport = mujoco.MjrRect(0, 0, w, h)
         # 更新场景
         mujoco.mjv_updateScene(
             self.model, self.data, mujoco.MjvOption(), 
-            None, camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene
+            mujoco.MjvPerturb(), camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene
         )
         # 渲染到缓冲区
         mujoco.mjr_render(viewport, self.scene, context)
@@ -184,41 +210,13 @@ class CameraViewer(BaseViewer):
         mujoco.mjr_readPixels(rgb, depth, viewport, context)
         cv_image = cv2.cvtColor(np.flipud(rgb), cv2.COLOR_RGB2BGR)
 
-        # 参数设置
-        min_depth_m = 0.0  # 最小深度（0米）
-        max_depth_m = 8.0  # 最大深度（8米）
-        near_clip = 0.1    # 近裁剪面（米）
-        far_clip = 50.0    # 远裁剪面（米）
-        # 将非线性深度缓冲区值转换为线性深度（米）
-        # 公式: linear_depth = far * near / (far - (far - near) * depth)
-        linear_depth_m = far_clip * near_clip / (far_clip - (far_clip - near_clip) * depth)
-        # 裁剪深度到0-8米范围
-        depth_clipped = np.clip(linear_depth_m, min_depth_m, max_depth_m)
-        # 映射0-8米到0-255像素值（距离越小越亮）
-        # 反转映射：距离越小值越大（越亮）
-        inverted_depth = max_depth_m - depth_clipped
-        # 计算缩放因子：255/(max_depth_m - min_depth_m)
-        scale = 255.0 / (max_depth_m - min_depth_m)
-        depth_visual = (inverted_depth * scale).astype(np.uint8)
-        # 翻转图像（MuJoCO坐标系到OpenCV坐标系）
-        depth_visual = np.flipud(depth_visual)
-        return cv_image, depth_visual
+        return cv_image
     
-    def image_process_callback(self, name, color_img, depth_img):
+    def image_process_callback(self, name:str, color_img):
         """
         图象处理回调
         
         :param color_img: 相机名称
         :param color_img: 彩色图象数据
-        :param depth_img: 深度图象数据
         """
         pass
-    
-    # def update_camera(self):
-    #     if not glfw.window_should_close(self.window):
-    #         img, depth_img = self.get_image(self.resolution[0], self.resolution[1])
-            
-
-    #         # 交换前后缓冲区
-    #         glfw.swap_buffers(self.window)
-    #         glfw.poll_events()

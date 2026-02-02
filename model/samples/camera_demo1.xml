@@ -29,7 +29,7 @@
     <body name="camera_bracket2" pos="-0.5 -1 0.1">
       <freejoint/>
       <geom type="box" size="0.15 0.15 0.1" rgba="1 1 0 1"/>
-      <camera name="test_camera2" mode="targetbody" target="box" pos="0 0 0.7" euler="0.7 0 0" fovy="51" resolution="1080 720"/>
+      <camera name="test_camera2" mode="targetbody" target="box" pos="0 0 0.7" euler="0.7 0 0" fovy="51"/>
     </body>
   </worldbody>
 </mujoco>
